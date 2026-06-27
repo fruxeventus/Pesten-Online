@@ -1,0 +1,538 @@
+const http = require("http");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const PORT = Number(process.env.PORT || 3000);
+const ROOT = __dirname;
+const rooms = new Map();
+
+const suits = ["hearts", "diamonds", "clubs", "spades"];
+const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+const goAgainRanks = new Set(["7", "K"]);
+const disconnectedAfterMs = 5000;
+const forcedDrawDelayMs = 1200;
+const mimeTypes = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+};
+
+const server = http.createServer(async (req, res) => {
+  try {
+    if (req.url.startsWith("/api/")) {
+      await handleApi(req, res);
+      return;
+    }
+    serveFile(req, res);
+  } catch (error) {
+    sendJson(res, 500, { error: error.message || "Server error." });
+  }
+});
+
+server.listen(PORT, "0.0.0.0", () => {
+  const addresses = getLocalAddresses();
+  console.log(`Pesten Kamers draait:`);
+  console.log(`  Deze computer: http://localhost:${PORT}`);
+  for (const address of addresses) console.log(`  Vrienden op wifi: http://${address}:${PORT}`);
+});
+
+async function handleApi(req, res) {
+  if (req.method === "GET" && req.url.startsWith("/api/state")) {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const code = cleanCode(url.searchParams.get("code"));
+    const sessionId = url.searchParams.get("sessionId");
+    const room = getRoom(code);
+    const player = touchPlayer(room, sessionId);
+    if (!player) throw new PublicError("Vul je naam in om mee te doen.");
+    sendJson(res, 200, publicState(room, sessionId));
+    return;
+  }
+
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Methode niet toegestaan." });
+    return;
+  }
+
+  const body = await readBody(req);
+  if (req.url === "/api/create") {
+    const code = makeCode();
+    const maxPlayers = clamp(Number(body.maxPlayers) || 4, 2, 5);
+    const player = makePlayer(body.sessionId, body.name, true);
+    rooms.set(code, {
+      code,
+      maxPlayers,
+      hostId: player.id,
+      players: [player],
+      phase: "waiting",
+      deck: [],
+      discard: [],
+      current: 0,
+      direction: 1,
+      chosenSuit: null,
+      pendingDraw: 0,
+      pendingDrawRank: null,
+      freePlayPlayerId: null,
+      winnerId: null,
+      notice: null,
+      mustDrawPlayerId: null,
+      mustDrawSince: null,
+      lastEvent: null,
+      eventId: 0,
+      createdAt: Date.now(),
+    });
+    sendJson(res, 200, { code });
+    return;
+  }
+
+  if (req.url === "/api/join") {
+    const code = cleanCode(body.code);
+    const room = getRoom(code);
+    if (room.phase !== "waiting") throw new PublicError("Dit spel is al begonnen.");
+    if (room.players.length >= room.maxPlayers) throw new PublicError("Deze kamer is vol.");
+
+    const existing = room.players.find((player) => player.id === body.sessionId);
+    if (existing) {
+      existing.name = cleanName(body.name);
+      existing.connectedAt = Date.now();
+    } else {
+      room.players.push(makePlayer(body.sessionId, body.name, false));
+    }
+    sendJson(res, 200, { code });
+    return;
+  }
+
+  if (req.url === "/api/action") {
+    const code = cleanCode(body.code);
+    const room = getRoom(code);
+    const player = room.players.find((item) => item.id === body.sessionId);
+    if (!player) throw new PublicError("Je zit niet in deze kamer.");
+    player.connectedAt = Date.now();
+    handleAction(room, player, body);
+    validateCards(room);
+    sendJson(res, 200, publicState(room, player.id));
+    return;
+  }
+
+  sendJson(res, 404, { error: "Onbekende route." });
+}
+
+function handleAction(room, player, body) {
+  if (body.type === "start") {
+    if (player.id !== room.hostId) throw new PublicError("Alleen de host kan starten.");
+    if (room.players.length < 2) throw new PublicError("Je hebt minstens twee spelers nodig.");
+    startGame(room);
+    return;
+  }
+
+  if (body.type === "hostWin") {
+    if (player.id !== room.hostId) throw new PublicError("Alleen de host kan dit testen.");
+    room.phase = "finished";
+    room.winnerId = player.id;
+    return;
+  }
+
+  if (body.type === "giveCard") {
+    if (player.id !== room.hostId) throw new PublicError("Alleen de host kan dit testen.");
+    const cardIndex = room.deck.findIndex((card) => card.id === body.cardId);
+    if (cardIndex < 0) throw new PublicError("Die kaart is niet beschikbaar.");
+    const [card] = room.deck.splice(cardIndex, 1);
+    player.hand.push(card);
+    setEvent(room, { type: "draw", to: player.id, count: 1, cardIds: [card.id], forced: false, test: true });
+    updateMustDraw(room);
+    return;
+  }
+
+  if (room.phase !== "playing") throw new PublicError("Het spel is niet bezig.");
+  const current = room.players[room.current];
+  if (!current || current.id !== player.id) throw new PublicError("Je bent niet aan de beurt.");
+
+  if (body.type === "draw") {
+    drawForTurn(room, player, false);
+    return;
+  }
+
+  if (body.type === "play") {
+    if (room.mustDrawPlayerId === player.id) throw new PublicError("Je moet eerst een kaart pakken.");
+    const cardIndex = player.hand.findIndex((card) => card.id === body.cardId);
+    if (cardIndex < 0) throw new PublicError("Je hebt die kaart niet.");
+    const card = player.hand[cardIndex];
+    if (!isPlayable(room, card, player)) throw new PublicError("Die kaart mag je nu niet leggen.");
+
+    player.hand.splice(cardIndex, 1);
+    room.discard.push(card);
+    room.chosenSuit = null;
+    if (room.freePlayPlayerId === player.id) room.freePlayPlayerId = null;
+    applyCardEffect(room, card);
+
+    if (player.hand.length === 0) {
+      room.phase = "finished";
+      room.winnerId = player.id;
+      return;
+    }
+
+    if (!goAgainRanks.has(card.rank)) advanceTurn(room);
+    updateMustDraw(room);
+    return;
+  }
+
+  throw new PublicError("Onbekende actie.");
+}
+
+function startGame(room) {
+  room.deck = shuffle(makeDeck());
+  room.discard = [];
+  room.current = 0;
+  room.direction = 1;
+  room.chosenSuit = null;
+  room.pendingDraw = 0;
+  room.pendingDrawRank = null;
+  room.freePlayPlayerId = null;
+  room.winnerId = null;
+  room.notice = null;
+  room.mustDrawPlayerId = null;
+  room.mustDrawSince = null;
+  room.phase = "playing";
+
+  for (const player of room.players) {
+    player.hand = [];
+    for (let i = 0; i < 7; i += 1) player.hand.push(drawCard(room));
+  }
+
+  let first = drawCard(room);
+  while (["2", "7", "8", "10", "J", "K", "A", "Joker"].includes(first.rank)) {
+    room.deck.unshift(first);
+    room.deck = shuffle(room.deck);
+    first = drawCard(room);
+  }
+  room.discard.push(first);
+  validateCards(room);
+  updateMustDraw(room);
+}
+
+function drawForTurn(room, player, endTurn) {
+  if (room.pendingDraw > 0) {
+    const count = room.pendingDraw;
+    const drawnCards = drawCards(room, player, count);
+    setEvent(room, { type: "draw", to: player.id, count, cardIds: drawnCards.map((card) => card.id), forced: true });
+    room.pendingDraw = 0;
+    room.pendingDrawRank = null;
+    room.mustDrawPlayerId = null;
+    room.mustDrawSince = null;
+    advanceTurn(room);
+    updateMustDraw(room);
+    return;
+  }
+
+  const drawnCards = drawCards(room, player, 1);
+  setEvent(room, { type: "draw", to: player.id, count: 1, cardIds: drawnCards.map((card) => card.id), forced: false });
+  room.mustDrawPlayerId = null;
+  room.mustDrawSince = null;
+  if (!player.hand.some((card) => isPlayable(room, card, player))) advanceTurn(room);
+  if (endTurn) advanceTurn(room);
+  updateMustDraw(room);
+}
+
+function applyCardEffect(room, card) {
+  if (card.rank === "2") {
+    room.pendingDraw += 2;
+    room.pendingDrawRank = "2";
+  }
+  if (card.rank === "10") rotateHands(room);
+  if (card.rank === "Joker") {
+    room.pendingDraw += 5;
+    room.pendingDrawRank = "Joker";
+    room.freePlayPlayerId = null;
+  }
+  if (card.rank === "8") advanceTurn(room);
+  if (card.rank === "A") room.direction *= -1;
+}
+
+function advanceTurn(room) {
+  room.current = nextIndex(room, room.current);
+}
+
+function updateMustDraw(room) {
+  if (room.phase !== "playing") {
+    room.mustDrawPlayerId = null;
+    room.mustDrawSince = null;
+    return;
+  }
+  const player = room.players[room.current];
+  if (!player || player.hand.some((card) => isPlayable(room, card, player))) {
+    room.mustDrawPlayerId = null;
+    room.mustDrawSince = null;
+    return;
+  }
+  if (room.mustDrawPlayerId !== player.id) room.mustDrawSince = Date.now();
+  room.mustDrawPlayerId = player.id;
+  room.notice = { playerId: player.id, text: "moet pakken", until: Date.now() + 3000 };
+}
+
+function autoResolveForcedDraw(room) {
+  if (room.phase !== "playing" || room.pendingDraw <= 0 || !room.mustDrawPlayerId) return;
+  if (!room.mustDrawSince || Date.now() - room.mustDrawSince < forcedDrawDelayMs) return;
+  const player = room.players[room.current];
+  if (!player || player.id !== room.mustDrawPlayerId) return;
+  drawForTurn(room, player, false);
+}
+
+function nextIndex(room, from) {
+  const total = room.players.length;
+  return (from + room.direction + total) % total;
+}
+
+function isPlayable(room, card, player) {
+  const top = room.discard[room.discard.length - 1];
+  if (!top) return true;
+  if (room.freePlayPlayerId === player?.id) return true;
+  if (room.pendingDraw > 0) return card.rank === room.pendingDrawRank;
+  if (card.rank === "Joker") return true;
+  const activeSuit = room.chosenSuit || top.suit;
+  return card.suit === activeSuit || card.rank === top.rank;
+}
+
+function publicState(room, sessionId) {
+  updateMustDraw(room);
+  autoResolveForcedDraw(room);
+  updateMustDraw(room);
+  validateCards(room);
+  const now = Date.now();
+  const me = room.players.find((player) => player.id === sessionId);
+  const hand = me ? [...me.hand].sort(sortCards) : [];
+  const notice = room.notice && room.notice.until > Date.now()
+    ? {
+        text: room.notice.playerId === sessionId
+          ? room.pendingDraw > 0
+            ? `Je kan niet. Het spel pakt zo ${room.pendingDraw} kaarten.`
+            : "Je kan niet. Pak een kaart."
+          : `${room.players.find((player) => player.id === room.notice.playerId)?.name || "Speler"} kan niet en moet pakken.`,
+        until: room.notice.until,
+      }
+    : null;
+  const nextPlayer = room.phase === "playing" ? room.players[nextIndex(room, room.current)] : null;
+  const viewerSwap = room.lastEvent?.type === "swap"
+    ? room.lastEvent.mapping.find((item) => item.to === sessionId)
+    : null;
+  const viewerSwapFrom = viewerSwap
+    ? room.players.find((player) => player.id === viewerSwap.from)?.name || "Speler"
+    : null;
+
+  return {
+    code: room.code,
+    localOrigin: getPreferredLocalOrigin(),
+    maxPlayers: room.maxPlayers,
+    phase: room.phase,
+    isHost: room.hostId === sessionId,
+    currentPlayerId: room.players[room.current]?.id || null,
+    deckCount: room.deck.length,
+    topCard: room.discard[room.discard.length - 1] || null,
+    chosenSuit: room.chosenSuit,
+    pendingDraw: room.pendingDraw,
+    pendingDrawRank: room.pendingDrawRank,
+    freePlayPlayerId: room.freePlayPlayerId,
+    mustDrawPlayerId: room.mustDrawPlayerId,
+    nextPlayerId: nextPlayer?.id || null,
+    nextPlayerName: nextPlayer?.name || null,
+    notice,
+    lastEvent: room.lastEvent,
+    viewerSwapFrom,
+    winner: room.winnerId ? room.players.find((player) => player.id === room.winnerId) : null,
+    availableCards: room.hostId === sessionId ? [...room.deck].sort(sortCards) : [],
+    players: room.players.map((player) => ({
+      id: player.id,
+      name: player.name,
+      handCount: player.hand.length,
+      isYou: player.id === sessionId,
+      connected: now - player.connectedAt < disconnectedAfterMs,
+    })),
+    hand,
+    playableCardIds: hand.filter((card) => room.phase === "playing" && room.players[room.current]?.id === sessionId && isPlayable(room, card, me)).map((card) => card.id),
+  };
+}
+
+function makeDeck() {
+  const deck = [];
+  for (const suit of suits) {
+    for (const rank of ranks) deck.push({ id: `${rank}-${suit}`, suit, rank });
+  }
+  deck.push({ id: "Joker-red", suit: "joker", rank: "Joker", color: "red" });
+  deck.push({ id: "Joker-black", suit: "joker", rank: "Joker", color: "black" });
+  return deck;
+}
+
+function drawCards(room, player, count) {
+  const drawnCards = [];
+  for (let i = 0; i < count; i += 1) {
+    const card = drawCard(room);
+    player.hand.push(card);
+    drawnCards.push(card);
+  }
+  return drawnCards;
+}
+
+function drawCard(room) {
+  if (room.deck.length === 0) recycleDiscard(room);
+  const card = room.deck.pop();
+  if (!card) throw new PublicError("Er zijn geen kaarten meer om te pakken.");
+  return card;
+}
+
+function recycleDiscard(room) {
+  if (room.discard.length <= 1) return;
+  const top = room.discard.pop();
+  room.deck = shuffle(room.discard);
+  room.discard = [top];
+}
+
+function rotateHands(room) {
+  const oldHands = room.players.map((player) => player.hand);
+  const mapping = [];
+  for (let i = 0; i < room.players.length; i += 1) {
+    const previous = (i - 1 + room.players.length) % room.players.length;
+    room.players[i].hand = oldHands[previous];
+    mapping.push({ to: room.players[i].id, from: room.players[previous].id, count: room.players[i].hand.length });
+  }
+  setEvent(room, { type: "swap", mapping });
+}
+
+function setEvent(room, event) {
+  room.eventId += 1;
+  room.lastEvent = { ...event, id: room.eventId, at: Date.now() };
+}
+
+function validateCards(room) {
+  if (room.phase === "waiting") return;
+  const seen = new Set();
+  const allCards = [
+    ...room.deck,
+    ...room.discard,
+    ...room.players.flatMap((player) => player.hand),
+  ];
+  for (const card of allCards) {
+    const key = card.id;
+    if (seen.has(key)) throw new PublicError("Kaartfout: dubbele kaart gevonden.");
+    seen.add(key);
+  }
+  if (seen.size > 54) throw new PublicError("Kaartfout: te veel kaarten in het spel.");
+}
+
+function makePlayer(sessionId, name, host) {
+  return {
+    id: sessionId || cryptoId(),
+    name: cleanName(name || (host ? "Host" : "Speler")),
+    hand: [],
+    connectedAt: Date.now(),
+  };
+}
+
+function getRoom(code) {
+  const room = rooms.get(code);
+  if (!room) throw new PublicError("Kamer niet gevonden.");
+  return room;
+}
+
+function touchPlayer(room, sessionId) {
+  const player = room.players.find((item) => item.id === sessionId);
+  if (player) player.connectedAt = Date.now();
+  return player;
+}
+
+function makeCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  do {
+    code = Array.from({ length: 4 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+  } while (rooms.has(code));
+  return code;
+}
+
+function cleanCode(code) {
+  return String(code || "").trim().toUpperCase();
+}
+
+function cleanName(name) {
+  return String(name || "Speler").trim().slice(0, 18) || "Speler";
+}
+
+function sortCards(a, b) {
+  if (a.suit === "joker" || b.suit === "joker") return a.suit === b.suit ? 0 : a.suit === "joker" ? 1 : -1;
+  const suitOrder = suits.indexOf(a.suit) - suits.indexOf(b.suit);
+  if (suitOrder !== 0) return suitOrder;
+  return ranks.indexOf(a.rank) - ranks.indexOf(b.rank);
+}
+
+function shuffle(cards) {
+  const result = [...cards];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function cryptoId() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function serveFile(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const requested = url.pathname === "/" || /^\/kamers\/[A-Z0-9]+\/?$/i.test(url.pathname)
+    ? "/index.html"
+    : url.pathname;
+  const filePath = path.normalize(path.join(ROOT, requested));
+  if (!filePath.startsWith(ROOT)) {
+    res.writeHead(403);
+    res.end("Forbidden");
+    return;
+  }
+  fs.readFile(filePath, (error, data) => {
+    if (error) {
+      res.writeHead(404);
+      res.end("Not found");
+      return;
+    }
+    res.writeHead(200, { "Content-Type": mimeTypes[path.extname(filePath)] || "application/octet-stream" });
+    res.end(data);
+  });
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 100_000) reject(new PublicError("Verzoek is te groot."));
+    });
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(body || "{}"));
+      } catch {
+        reject(new PublicError("Ongeldige JSON."));
+      }
+    });
+  });
+}
+
+function sendJson(res, status, data) {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify(data));
+}
+
+function getLocalAddresses() {
+  return Object.values(os.networkInterfaces())
+    .flat()
+    .filter((item) => item && item.family === "IPv4" && !item.internal)
+    .map((item) => item.address);
+}
+
+function getPreferredLocalOrigin() {
+  const [address] = getLocalAddresses();
+  return address ? `http://${address}:${PORT}` : "";
+}
+
+class PublicError extends Error {}

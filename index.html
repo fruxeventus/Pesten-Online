@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pesten Kamers</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div>
+          <h1>Pesten Kamers</h1>
+          <p>Lokaal online kaarten met vrienden</p>
+        </div>
+        <div class="connection" id="connection">Niet verbonden</div>
+      </header>
+
+      <section class="screen" id="homeScreen">
+        <div class="hero">
+          <h2>Maak een kamer en deel de link</h2>
+          <p>Kies hoeveel spelers mee mogen doen, maak een kamer en stuur de link naar je vrienden. Zij vullen alleen hun naam in.</p>
+        </div>
+
+        <div class="home-grid single">
+          <form class="panel" id="createForm">
+            <h3>Kamer maken</h3>
+            <label>
+              Jouw naam
+              <input id="createName" maxlength="18" autocomplete="nickname" placeholder="Speler" />
+            </label>
+            <label>
+              Maximaal aantal spelers
+              <select id="playerCount">
+                <option value="2">2 spelers</option>
+                <option value="3">3 spelers</option>
+                <option value="4" selected>4 spelers</option>
+                <option value="5">5 spelers</option>
+              </select>
+            </label>
+            <button type="submit">Maak kamer</button>
+          </form>
+
+          <form class="panel hidden" id="joinForm">
+            <h3>Meedoen</h3>
+            <p class="panel-copy">Je bent uitgenodigd voor een potje Pesten.</p>
+            <label>
+              Jouw naam
+              <input id="joinName" maxlength="18" autocomplete="nickname" placeholder="Speler" />
+            </label>
+            <button type="submit">Doe mee</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="screen hidden" id="roomScreen">
+        <div class="room-head">
+          <div>
+            <span class="eyebrow">Kamer</span>
+            <strong id="roomCodeLabel">----</strong>
+          </div>
+          <div>
+            <span class="eyebrow">Status</span>
+            <strong id="statusLabel">Wachten</strong>
+          </div>
+          <button class="secondary" id="leaveButton" type="button">Terug</button>
+        </div>
+
+        <section class="share-panel" id="sharePanel">
+          <div>
+            <span class="eyebrow">Deel deze link</span>
+            <strong id="shareLink">-</strong>
+          </div>
+          <button class="secondary" id="copyLinkButton" type="button">Kopieer link</button>
+        </section>
+
+        <section class="table">
+          <div class="opponents" id="opponents"></div>
+
+          <div class="center-table">
+            <button class="deck" id="drawButton" type="button" title="Pak kaart">
+              <span id="deckCount">0</span>
+            </button>
+            <div class="discard" id="discard"></div>
+          </div>
+
+          <div class="message" id="message">Wachten op spelers.</div>
+          <div class="turn-info" id="turnInfo">Volgende: -</div>
+        </section>
+
+        <section class="hand-wrap">
+          <div class="hand-head">
+            <div>
+              <span class="eyebrow">Jouw hand</span>
+              <strong id="youLabel">Jij</strong>
+            </div>
+            <div class="actions">
+              <button class="secondary" id="hostWinButton" type="button">Test host wint</button>
+              <button class="secondary" id="giveCardButton" type="button">Geef kaart</button>
+              <button id="startButton" type="button">Start spel</button>
+            </div>
+          </div>
+          <div class="hand" id="hand"></div>
+        </section>
+
+        <details class="rules">
+          <summary>Regels in deze versie</summary>
+          <p>Leg dezelfde soort of waarde op. Boer telt als gewone kaart. Aas draait de richting om. 2 laat de volgende speler twee kaarten pakken en kan stapelen. Jokers stapelen per vijf kaarten. 7 en Heer geven nog een beurt. 8 slaat de volgende speler over. 10 wisselt alle handen door.</p>
+        </details>
+      </section>
+    </main>
+
+    <section class="win-screen hidden" id="winScreen">
+      <div class="win-card">
+        <span class="eyebrow">Einde spel</span>
+        <h2 id="winnerTitle">Gewonnen</h2>
+        <p id="winnerText">De winnaar is bekend.</p>
+        <button id="closeWinButton" type="button">Bekijk tafel</button>
+      </div>
+    </section>
+
+    <div class="turn-overlay hidden" id="turnOverlay" aria-live="polite"></div>
+
+    <dialog id="cardPickerDialog">
+      <form method="dialog">
+        <h3>Kies een kaart</h3>
+        <p class="dialog-copy">Alleen kaarten die nog in de trekstapel zitten.</p>
+        <div class="card-picker-grid" id="cardPickerGrid"></div>
+        <button class="secondary" id="closeCardPickerButton" type="button">Sluiten</button>
+      </form>
+    </dialog>
+
+    <script src="/game.js"></script>
+  </body>
+</html>
