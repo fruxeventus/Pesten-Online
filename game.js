@@ -32,6 +32,8 @@ const hostWinButton = $("#hostWinButton");
 const giveCardButton = $("#giveCardButton");
 const leaveButton = $("#leaveButton");
 const drawButton = $("#drawButton");
+const undoButton = $("#undoButton");
+const finishTurnButton = $("#finishTurnButton");
 const copyLinkButton = $("#copyLinkButton");
 const sharePanel = $("#sharePanel");
 const shareLink = $("#shareLink");
@@ -113,6 +115,8 @@ const translations = {
     you: "You",
     hostWin: "Test host wins",
     giveCard: "Give card",
+    undo: "Undo",
+    finishTurn: "Finish turn",
     startGame: "Start game",
     rulesTitle: "How to play",
     rulesText: `<p><strong>Goal:</strong> be the first player with no cards left.</p><ul><li>On your turn, play one card on the discard pile.</li><li>Your card must match the top card by suit or by rank.</li><li>If you cannot play, draw a card from the deck.</li><li>Special cards can skip, reverse, give extra turns, swap hands, or make someone draw cards.</li></ul>`,
@@ -160,6 +164,7 @@ const translations = {
     winnerTitle: "{name} won!",
     youWonText: "Nice game. You got rid of all your cards.",
     winnerText: "The game is over.",
+    disconnectedWinText: "The other players disconnected.",
   },
 };
 
@@ -204,6 +209,8 @@ translations.nl = {
   you: "Jij",
   hostWin: "Test host wint",
   giveCard: "Geef kaart",
+  undo: "Ongedaan",
+  finishTurn: "Beurt klaar",
   startGame: "Start spel",
   rulesTitle: "Zo speel je",
   rulesText: `<p><strong>Doel:</strong> raak als eerste al je kaarten kwijt.</p><ul><li>Als je aan de beurt bent, leg je een kaart op de aflegstapel.</li><li>Je kaart moet dezelfde soort of waarde hebben als de bovenste kaart.</li><li>Kun je niet spelen, dan pak je een kaart van de stapel.</li><li>Speciale kaarten kunnen overslaan, omdraaien, extra beurten geven, handen wisselen of iemand kaarten laten pakken.</li></ul>`,
@@ -248,6 +255,7 @@ translations.nl = {
   winnerTitle: "{name} heeft gewonnen!",
   youWonText: "Lekker gespeeld. Je bent al je kaarten kwijt.",
   winnerText: "Het spel is afgelopen.",
+  disconnectedWinText: "De andere spelers zijn weg.",
 };
 
 translations.fr = {
@@ -433,6 +441,8 @@ startButton.addEventListener("click", () => sendAction("start"));
 hostWinButton.addEventListener("click", () => sendAction("hostWin"));
 giveCardButton.addEventListener("click", openCardPicker);
 drawButton.addEventListener("click", () => sendAction("draw"));
+undoButton.addEventListener("click", () => sendAction("undo"));
+finishTurnButton.addEventListener("click", () => sendAction("finishTurn"));
 closeWinButton.addEventListener("click", () => {
   dismissedWinKey = winKey(state);
   winScreen.classList.add("hidden");
@@ -594,6 +604,8 @@ function applyLanguage() {
   youLabel.textContent = t("you");
   hostWinButton.textContent = t("hostWin");
   giveCardButton.textContent = t("giveCard");
+  undoButton.textContent = t("undo");
+  finishTurnButton.textContent = t("finishTurn");
   startButton.textContent = t("startGame");
   homeRulesTitle.textContent = t("rulesTitle");
   homeRulesText.innerHTML = t("rulesText");
@@ -653,6 +665,8 @@ function render() {
   giveCardButton.hidden = !state.canUseHostTools || state.phase !== "playing";
   chatPanel.hidden = Boolean(state.botMode);
   drawButton.disabled = !isMyTurn || (state.pendingDraw > 0 && mustDraw);
+  undoButton.disabled = !state.canUndo;
+  finishTurnButton.disabled = !state.canFinishTurn;
   deckCount.textContent = state.deckCount;
   turnInfo.textContent = turnLine(state, current);
 
@@ -704,7 +718,9 @@ function render() {
         : t("yourStackTurn", { card: stackCard })
       : mustDraw || cannotPlay
         ? t("cannotPlay")
-        : t("yourTurn");
+        : state.canUndo
+          ? t("yourTurn")
+          : t("yourTurn");
   } else {
     message.textContent = current ? t("currentTurn", { name: current.name }) : t("waiting");
   }
@@ -1032,7 +1048,11 @@ function renderWinScreen(nextState) {
   const you = nextState.players.find((player) => player.isYou);
   const isYou = you?.id === nextState.winner.id;
   winnerTitle.textContent = isYou ? t("youWon") : t("winnerTitle", { name: nextState.winner.name });
-  winnerText.textContent = isYou ? t("youWonText") : t("winnerText");
+  winnerText.textContent = nextState.winnerReason === "disconnected"
+    ? t("disconnectedWinText")
+    : isYou
+      ? t("youWonText")
+      : t("winnerText");
   winScreen.classList.remove("hidden");
 }
 

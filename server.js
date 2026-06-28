@@ -95,6 +95,8 @@ async function handleApi(req, res) {
       mustDrawPlayerId: null,
       mustDrawSince: null,
       resolvingForcedDraw: false,
+      turnHistory: [],
+      winnerReason: null,
       chat: [],
       lastEvent: null,
       eventId: 0,
@@ -130,6 +132,8 @@ async function handleApi(req, res) {
       mustDrawPlayerId: null,
       mustDrawSince: null,
       resolvingForcedDraw: false,
+      turnHistory: [],
+      winnerReason: null,
       chat: [],
       lastEvent: null,
       eventId: 0,
@@ -223,6 +227,16 @@ function handleAction(room, player, body) {
     return;
   }
 
+  if (body.type === "undo") {
+    undoLastPlay(room, player);
+    return;
+  }
+
+  if (body.type === "finishTurn") {
+    finishTurn(room, player);
+    return;
+  }
+
   if (body.type === "play") {
     if (room.mustDrawPlayerId === player.id) throw new PublicError("Je moet eerst een kaart pakken.");
     const cardIndex = player.hand.findIndex((card) => card.id === body.cardId);
@@ -231,6 +245,7 @@ function handleAction(room, player, body) {
     if (!isPlayable(room, card, player)) throw new PublicError("Die kaart mag je nu niet leggen.");
     if (card.rank === "J" && !suits.includes(body.chosenSuit)) throw new PublicError("Kies een soort voor de boer.");
 
+    room.turnHistory.push({ playerId: player.id, state: snapshotTurnState(room) });
     player.hand.splice(cardIndex, 1);
     room.discard.push(card);
     room.chosenSuit = card.rank === "J" ? body.chosenSuit : null;
@@ -245,7 +260,6 @@ function handleAction(room, player, body) {
       return;
     }
 
-    if (shouldAdvanceAfterPlay(room, card)) advanceTurn(room);
     updateMustDraw(room);
     return;
   }
@@ -262,13 +276,18 @@ function playBotTurn(room) {
   updateMustDraw(room);
   const playable = bot.hand.filter((card) => isPlayable(room, card, bot));
   if (playable.length === 0) {
+    const hadPendingDraw = room.pendingDraw > 0;
     drawForTurn(room, bot, false);
+    if (!hadPendingDraw && room.phase === "playing" && room.players[room.current]?.id === bot.id) {
+      finishTurn(room, bot);
+    }
     return;
   }
 
   const card = chooseBotCard(room, bot, playable);
   const cardIndex = bot.hand.findIndex((item) => item.id === card.id);
   if (cardIndex < 0) return;
+  room.turnHistory.push({ playerId: bot.id, state: snapshotTurnState(room) });
   bot.hand.splice(cardIndex, 1);
   room.discard.push(card);
   room.chosenSuit = card.rank === "J" ? chooseBotSuit(bot, room.botDifficulty) : null;
@@ -283,14 +302,8 @@ function playBotTurn(room) {
     return;
   }
 
-  if (shouldAdvanceAfterPlay(room, card)) advanceTurn(room);
+  finishTurn(room, bot);
   updateMustDraw(room);
-}
-
-function shouldAdvanceAfterPlay(room, card) {
-  if (goAgainRanks.has(card.rank)) return false;
-  if (card.rank === "A" && room.players.length === 2) return false;
-  return true;
 }
 
 function chooseBotCard(room, bot, playable) {
@@ -337,10 +350,12 @@ function startGame(room) {
   room.pendingDrawRank = null;
   room.freePlayPlayerId = null;
   room.winnerId = null;
+  room.winnerReason = null;
   room.notice = null;
   room.mustDrawPlayerId = null;
   room.mustDrawSince = null;
   room.resolvingForcedDraw = false;
+  room.turnHistory = [];
   room.phase = "playing";
 
   for (const player of room.players) {
@@ -382,8 +397,7 @@ function drawForTurn(room, player, endTurn) {
   setEvent(room, { type: "draw", to: player.id, count: 1, cardIds: drawnCards.map((card) => card.id), forced: false });
   room.mustDrawPlayerId = null;
   room.mustDrawSince = null;
-  if (!player.hand.some((card) => isPlayable(room, card, player))) advanceTurn(room);
-  if (endTurn) advanceTurn(room);
+  if (endTurn) finishTurn(room, player);
   updateMustDraw(room);
 }
 
@@ -398,12 +412,77 @@ function applyCardEffect(room, card) {
     room.pendingDrawRank = "Joker";
     room.freePlayPlayerId = null;
   }
-  if (card.rank === "8") advanceTurn(room);
   if (card.rank === "A") room.direction *= -1;
 }
 
 function advanceTurn(room) {
   room.current = nextIndex(room, room.current);
+  room.turnHistory = [];
+  room.freePlayPlayerId = null;
+}
+
+function finishTurn(room, player) {
+  if (room.mustDrawPlayerId === player.id) throw new PublicError("Je moet eerst een kaart pakken.");
+  const current = room.players[room.current];
+  if (!current || current.id !== player.id) throw new PublicError("Je bent niet aan de beurt.");
+  const top = room.discard[room.discard.length - 1];
+  advanceTurn(room);
+  if (top?.rank === "8" && room.phase === "playing") advanceTurn(room);
+  updateMustDraw(room);
+}
+
+function undoLastPlay(room, player) {
+  const last = room.turnHistory[room.turnHistory.length - 1];
+  if (!last || last.playerId !== player.id) throw new PublicError("Je kunt nu niets ongedaan maken.");
+  const currentEventId = room.eventId;
+  room.turnHistory.pop();
+  restoreTurnState(room, last.state);
+  room.eventId = Math.max(room.eventId, currentEventId);
+  setEvent(room, { type: "undo", by: player.id });
+  updateMustDraw(room);
+}
+
+function snapshotTurnState(room) {
+  return {
+    deck: cloneCards(room.deck),
+    discard: cloneCards(room.discard),
+    current: room.current,
+    direction: room.direction,
+    chosenSuit: room.chosenSuit,
+    pendingDraw: room.pendingDraw,
+    pendingDrawRank: room.pendingDrawRank,
+    freePlayPlayerId: room.freePlayPlayerId,
+    mustDrawPlayerId: room.mustDrawPlayerId,
+    mustDrawSince: room.mustDrawSince,
+    notice: room.notice ? { ...room.notice } : null,
+    lastEvent: room.lastEvent ? structuredClone(room.lastEvent) : null,
+    eventId: room.eventId,
+    players: room.players.map((player) => ({ id: player.id, hand: cloneCards(player.hand) })),
+  };
+}
+
+function restoreTurnState(room, state) {
+  room.deck = cloneCards(state.deck);
+  room.discard = cloneCards(state.discard);
+  room.current = state.current;
+  room.direction = state.direction;
+  room.chosenSuit = state.chosenSuit;
+  room.pendingDraw = state.pendingDraw;
+  room.pendingDrawRank = state.pendingDrawRank;
+  room.freePlayPlayerId = state.freePlayPlayerId;
+  room.mustDrawPlayerId = state.mustDrawPlayerId;
+  room.mustDrawSince = state.mustDrawSince;
+  room.notice = state.notice ? { ...state.notice } : null;
+  room.lastEvent = state.lastEvent ? structuredClone(state.lastEvent) : null;
+  room.eventId = state.eventId;
+  for (const savedPlayer of state.players) {
+    const player = room.players.find((item) => item.id === savedPlayer.id);
+    if (player) player.hand = cloneCards(savedPlayer.hand);
+  }
+}
+
+function cloneCards(cards) {
+  return cards.map((card) => ({ ...card }));
 }
 
 function updateMustDraw(room) {
@@ -413,6 +492,11 @@ function updateMustDraw(room) {
     return;
   }
   const player = room.players[room.current];
+  if (player && room.turnHistory?.some((entry) => entry.playerId === player.id)) {
+    room.mustDrawPlayerId = null;
+    room.mustDrawSince = null;
+    return;
+  }
   if (!player || player.hand.some((card) => isPlayable(room, card, player))) {
     room.mustDrawPlayerId = null;
     room.mustDrawSince = null;
@@ -453,6 +537,7 @@ function isPlayable(room, card, player) {
 }
 
 function publicState(room, sessionId) {
+  passDisconnectedTurn(room);
   updateMustDraw(room);
   autoResolveForcedDraw(room);
   updateMustDraw(room);
@@ -472,6 +557,7 @@ function publicState(room, sessionId) {
       }
     : null;
   const nextPlayer = room.phase === "playing" ? room.players[nextIndex(room, room.current)] : null;
+  const isCurrentViewer = room.phase === "playing" && room.players[room.current]?.id === sessionId;
   const swapMapping = room.lastEvent?.type === "swap" ? room.lastEvent.mapping : room.lastEvent?.swapMapping;
   const viewerSwap = swapMapping
     ? swapMapping.find((item) => item.to === sessionId)
@@ -503,8 +589,11 @@ function publicState(room, sessionId) {
     lastEvent: room.lastEvent,
     chat: room.botMode ? [] : room.chat.slice(-80),
     viewerSwapFrom,
+    winnerReason: room.winnerReason || null,
     winner: room.winnerId ? room.players.find((player) => player.id === room.winnerId) : null,
     availableCards: canUseHostTools(room, me) ? [...room.deck].sort(sortCards) : [],
+    canUndo: Boolean(isCurrentViewer && room.turnHistory.some((entry) => entry.playerId === sessionId)),
+    canFinishTurn: Boolean(isCurrentViewer && room.mustDrawPlayerId !== sessionId),
     players: room.players.map((player) => ({
       id: player.id,
       name: player.name,
@@ -566,6 +655,23 @@ function checkDisconnectWinner(room) {
   if (connectedPlayers.length !== 1) return;
   room.phase = "finished";
   room.winnerId = connectedPlayers[0].id;
+  room.winnerReason = "disconnected";
+}
+
+function passDisconnectedTurn(room) {
+  if (room.botMode || room.phase !== "playing" || room.players.length < 2) return;
+  const now = Date.now();
+  const connectedPlayers = room.players.filter((player) => now - player.connectedAt < disconnectedAfterMs);
+  if (connectedPlayers.length <= 1) return;
+  let current = room.players[room.current];
+  let guard = 0;
+  while (current && now - current.connectedAt >= disconnectedAfterMs && guard < room.players.length) {
+    advanceTurn(room);
+    room.mustDrawPlayerId = null;
+    room.mustDrawSince = null;
+    current = room.players[room.current];
+    guard += 1;
+  }
 }
 
 function drawCards(room, player, count) {

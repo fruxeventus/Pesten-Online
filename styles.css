@@ -352,6 +352,17 @@ button:disabled {
   perspective: 900px;
 }
 
+.table-action {
+  width: min(132px, 38vw);
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.finish-action {
+  background: var(--gold);
+  color: #1f1605;
+}
+
 .deck,
 .card,
 .discard,
