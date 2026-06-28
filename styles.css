@@ -797,9 +797,37 @@ button:disabled {
   padding: 10px 12px;
 }
 
-.rules p {
+.rules summary {
+  cursor: pointer;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.rules-body {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.rules-body p,
+.rules-body li {
+  color: var(--muted);
+}
+
+.rules-body p {
   margin-top: 8px;
   line-height: 1.45;
+}
+
+.rules-body ul {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 7px;
+}
+
+.rules-body strong {
+  color: var(--ink);
 }
 
 .chat-panel {

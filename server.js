@@ -362,13 +362,18 @@ function startGame(room) {
 function drawForTurn(room, player, endTurn) {
   if (room.pendingDraw > 0) {
     const count = room.pendingDraw;
+    const drawRank = room.pendingDrawRank;
     const drawnCards = drawCards(room, player, count);
     setEvent(room, { type: "draw", to: player.id, count, cardIds: drawnCards.map((card) => card.id), forced: true });
     room.pendingDraw = 0;
     room.pendingDrawRank = null;
     room.mustDrawPlayerId = null;
     room.mustDrawSince = null;
-    advanceTurn(room);
+    if (drawRank === "Joker") {
+      room.freePlayPlayerId = player.id;
+    } else {
+      advanceTurn(room);
+    }
     updateMustDraw(room);
     return;
   }

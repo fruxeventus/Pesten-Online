@@ -51,7 +51,7 @@ const chatInput = $("#chatInput");
 const homeRulesTitle = $("#homeRulesTitle");
 const homeRulesText = $("#homeRulesText");
 const roomRulesTitle = $(".rules summary");
-const roomRulesText = $(".rules p");
+const roomRulesText = roomScreen.querySelector(".rules-body");
 
 let sessionId = localStorage.getItem("pesten-session") || crypto.randomUUID();
 localStorage.setItem("pesten-session", sessionId);
@@ -114,10 +114,10 @@ const translations = {
     hostWin: "Test host wins",
     giveCard: "Give card",
     startGame: "Start game",
-    rulesTitle: "Rules for new players",
-    rulesText: "Your goal is to get rid of all your cards. On your turn, play a card with the same suit or rank as the top card, or draw from the deck if you cannot play. Special cards can change the turn, make someone draw cards, or swap hands.",
-    rulesRoomTitle: "Rules in this version",
-    rulesRoomText: "Play the same suit or rank as the top card. Joker can always be played. Jack lets you choose a suit. Ace reverses direction. 2 makes the next player draw two cards and can stack. Jokers stack by five cards. 7 and King give you another turn. 8 skips the next player. 10 rotates all hands.",
+    rulesTitle: "How to play",
+    rulesText: `<p><strong>Goal:</strong> be the first player with no cards left.</p><ul><li>On your turn, play one card on the discard pile.</li><li>Your card must match the top card by suit or by rank.</li><li>If you cannot play, draw a card from the deck.</li><li>Special cards can skip, reverse, give extra turns, swap hands, or make someone draw cards.</li></ul>`,
+    rulesRoomTitle: "How to play",
+    rulesRoomText: `<p><strong>Goal:</strong> be the first player with no cards left.</p><ul><li>Match the top card by suit or rank.</li><li>Draw from the deck if you cannot play.</li><li>Jack lets you choose a suit. Joker can always be played.</li><li>2 makes the next player draw two cards. Jokers add five cards.</li><li>7 and King give you another turn. 8 skips. Ace reverses. 10 rotates hands.</li></ul>`,
     chat: "Chat",
     messages: "Messages",
     chatPlaceholder: "Type a message",
@@ -205,10 +205,10 @@ translations.nl = {
   hostWin: "Test host wint",
   giveCard: "Geef kaart",
   startGame: "Start spel",
-  rulesTitle: "Regels voor nieuwe spelers",
-  rulesText: "Je doel is om al je kaarten kwijt te raken. Als je aan de beurt bent, leg je een kaart met dezelfde soort of waarde als de bovenste kaart, of pak je een kaart als je niet kunt. Speciale kaarten kunnen de beurt veranderen, iemand kaarten laten pakken of handen wisselen.",
-  rulesRoomTitle: "Regels in deze versie",
-  rulesRoomText: "Leg dezelfde soort of waarde op. Joker mag altijd. Boer laat je een soort kiezen. Aas draait de richting om. 2 laat de volgende speler twee kaarten pakken en kan stapelen. Jokers stapelen per vijf kaarten. 7 en Heer geven nog een beurt. 8 slaat de volgende speler over. 10 wisselt alle handen door.",
+  rulesTitle: "Zo speel je",
+  rulesText: `<p><strong>Doel:</strong> raak als eerste al je kaarten kwijt.</p><ul><li>Als je aan de beurt bent, leg je een kaart op de aflegstapel.</li><li>Je kaart moet dezelfde soort of waarde hebben als de bovenste kaart.</li><li>Kun je niet spelen, dan pak je een kaart van de stapel.</li><li>Speciale kaarten kunnen overslaan, omdraaien, extra beurten geven, handen wisselen of iemand kaarten laten pakken.</li></ul>`,
+  rulesRoomTitle: "Zo speel je",
+  rulesRoomText: `<p><strong>Doel:</strong> raak als eerste al je kaarten kwijt.</p><ul><li>Leg dezelfde soort of waarde op de bovenste kaart.</li><li>Pak een kaart als je niet kunt spelen.</li><li>Boer laat je een soort kiezen. Joker mag altijd.</li><li>2 laat de volgende speler twee kaarten pakken. Jokers tellen vijf kaarten erbij.</li><li>7 en Heer geven nog een beurt. 8 slaat over. Aas draait om. 10 wisselt handen.</li></ul>`,
   messages: "Berichten",
   chatPlaceholder: "Typ een bericht",
   send: "Stuur",
@@ -273,6 +273,8 @@ translations.fr = {
   copyLink: "Copier le lien",
   rulesTitle: "Regles pour debutants",
   rulesRoomTitle: "Regles de cette version",
+  rulesText: `<p><strong>But :</strong> etre le premier joueur sans cartes.</p><ul><li>A votre tour, posez une carte sur la pile.</li><li>La carte doit avoir la meme couleur ou la meme valeur que la carte du dessus.</li><li>Si vous ne pouvez pas jouer, piochez une carte.</li><li>Les cartes speciales peuvent passer un tour, inverser le sens ou faire piocher.</li></ul>`,
+  rulesRoomText: `<p><strong>But :</strong> etre le premier joueur sans cartes.</p><ul><li>Posez une carte de meme couleur ou de meme valeur.</li><li>Piochez si vous ne pouvez pas jouer.</li><li>Le valet choisit une couleur. Le joker peut toujours etre joue.</li><li>2 fait piocher deux cartes. Joker ajoute cinq cartes.</li><li>7 et Roi rejouent. 8 passe. As inverse. 10 fait tourner les mains.</li></ul>`,
   chat: "Chat",
   messages: "Messages",
   send: "Envoyer",
@@ -301,6 +303,8 @@ translations.de = {
   copyLink: "Link kopieren",
   rulesTitle: "Regeln fur neue Spieler",
   rulesRoomTitle: "Regeln in dieser Version",
+  rulesText: `<p><strong>Ziel:</strong> werde als Erste/r alle Karten los.</p><ul><li>Wenn du dran bist, legst du eine Karte auf den Ablagestapel.</li><li>Die Karte muss Farbe oder Wert der obersten Karte treffen.</li><li>Wenn du nicht spielen kannst, ziehst du eine Karte.</li><li>Sonderkarten koennen uberspringen, Richtung wechseln oder Karten ziehen lassen.</li></ul>`,
+  rulesRoomText: `<p><strong>Ziel:</strong> werde als Erste/r alle Karten los.</p><ul><li>Lege gleiche Farbe oder gleichen Wert.</li><li>Ziehe eine Karte, wenn du nicht spielen kannst.</li><li>Bube wahlt eine Farbe. Joker geht immer.</li><li>2 laesst zwei Karten ziehen. Joker addiert funf Karten.</li><li>7 und Koenig geben noch einen Zug. 8 uberspringt. Ass dreht um. 10 rotiert Haende.</li></ul>`,
   chat: "Chat",
   messages: "Nachrichten",
   send: "Senden",
@@ -329,6 +333,8 @@ translations.zh = {
   copyLink: "复制链接",
   rulesTitle: "新手规则",
   rulesRoomTitle: "本版本规则",
+  rulesText: `<p><strong>目标：</strong>最先出完所有手牌。</p><ul><li>轮到你时，把一张牌放到弃牌堆上。</li><li>你的牌必须和最上面的牌同花色或同点数。</li><li>如果不能出牌，就从牌堆摸一张。</li><li>特殊牌可以跳过、反转、再来一回合、换手牌或让别人摸牌。</li></ul>`,
+  rulesRoomText: `<p><strong>目标：</strong>最先出完所有手牌。</p><ul><li>出同花色或同点数的牌。</li><li>不能出牌就摸一张。</li><li>J 可以选择花色。 Joker 随时可以出。</li><li>2 让下家摸两张。 Joker 增加五张。</li><li>7 和 K 再来一回合。8 跳过。A 反转。10 轮换手牌。</li></ul>`,
   chat: "聊天",
   messages: "消息",
   send: "发送",
@@ -590,9 +596,9 @@ function applyLanguage() {
   giveCardButton.textContent = t("giveCard");
   startButton.textContent = t("startGame");
   homeRulesTitle.textContent = t("rulesTitle");
-  homeRulesText.textContent = t("rulesText");
+  homeRulesText.innerHTML = t("rulesText");
   roomRulesTitle.textContent = t("rulesRoomTitle");
-  roomRulesText.textContent = t("rulesRoomText");
+  roomRulesText.innerHTML = t("rulesRoomText");
   chatPanel.querySelector(".eyebrow").textContent = t("chat");
   chatPanel.querySelector("strong").textContent = t("messages");
   chatInput.placeholder = t("chatPlaceholder");
