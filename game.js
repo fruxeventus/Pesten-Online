@@ -28,6 +28,7 @@ const message = $("#message");
 const tutorialPanel = $("#tutorialPanel");
 const tutorialTitle = $("#tutorialTitle");
 const tutorialText = $("#tutorialText");
+const tutorialNextButton = $("#tutorialNextButton");
 const turnInfo = $("#turnInfo");
 const hand = $("#hand");
 const youLabel = $("#youLabel");
@@ -77,6 +78,8 @@ let pendingJackCardId = null;
 let botTurnInFlight = false;
 let lastBotTurnKey = "";
 let language = localStorage.getItem("crazy-eights-language") || "en";
+let tutorialStep = 0;
+let tutorialBotFirstTurnPending = false;
 
 const translations = {
   en: {
@@ -107,6 +110,22 @@ const translations = {
     tutorialBotTurn: "Watch the bot. Its hand is visible so you can see what it chooses.",
     tutorialDraw: "You cannot play. Draw a card from the deck.",
     tutorialContinue: "Follow the highlighted card, then press Finish turn when you are done.",
+    tourNext: "Click to continue",
+    tourStartGame: "Start tutorial game",
+    tourTable: "This is the table. The card in the middle is the card you must match.",
+    tourHand: "This is your hand. Play cards from here when they glow.",
+    tourDeck: "This is the draw deck. Click it when you cannot play a card.",
+    tourButtons: "Undo takes back cards from your current turn. Finish turn ends your turn.",
+    tourBot: "This is the tutorial bot. Only in this tutorial, the bot plays open handed so you can see why it chooses a card.",
+    mustDrawYou: "You cannot play. Draw a card.",
+    mustDrawYouForced: "You cannot play a {card}. The game will draw {count} cards.",
+    mustDrawOther: "{name} cannot play and must draw.",
+    mustDrawOtherForced: "{name} cannot stack a {card} and must draw {count} cards.",
+    eventDrew: "{name} drew {count} card(s).",
+    eventForcedDrew: "{name} was forced to draw {count} card(s).",
+    eventTen: "{name} played a 10. Everyone swapped hands.",
+    eventJoker: "{name} played a Joker. The next player must stack a Joker or draw 5.",
+    eventTwo: "{name} played a 2. The next player must stack a 2 or draw 2.",
     joinCodeTitle: "Join with code",
     joinCodeCopy: "Use the name above and type your friend's room code.",
     roomCode: "Room code",
@@ -209,6 +228,22 @@ translations.nl = {
   tutorialBotTurn: "Kijk naar de bot. Zijn hand is zichtbaar zodat je ziet wat hij kiest.",
   tutorialDraw: "Je kunt niet spelen. Pak een kaart van de stapel.",
   tutorialContinue: "Volg de gemarkeerde kaart en druk op Beurt klaar als je klaar bent.",
+  tourNext: "Klik om verder te gaan",
+  tourStartGame: "Start tutorial spel",
+  tourTable: "Dit is de tafel. De kaart in het midden is de kaart die je moet matchen.",
+  tourHand: "Dit is jouw hand. Speel kaarten vanaf hier als ze oplichten.",
+  tourDeck: "Dit is de trekstapel. Klik hier als je geen kaart kunt spelen.",
+  tourButtons: "Ongedaan haalt kaarten uit je huidige beurt terug. Beurt klaar eindigt je beurt.",
+  tourBot: "Dit is de tutorial bot. Alleen in deze tutorial speelt de bot open zodat je ziet waarom hij een kaart kiest.",
+  mustDrawYou: "Je kan niet. Pak een kaart.",
+  mustDrawYouForced: "Je kan geen {card} leggen. Het spel pakt {count} kaarten.",
+  mustDrawOther: "{name} kan niet en moet pakken.",
+  mustDrawOtherForced: "{name} kan geen {card} stapelen en moet {count} kaarten pakken.",
+  eventDrew: "{name} pakte {count} kaart(en).",
+  eventForcedDrew: "{name} moest {count} kaart(en) pakken.",
+  eventTen: "{name} speelde een 10. Iedereen wisselde handen.",
+  eventJoker: "{name} speelde een Joker. De volgende speler moet een Joker stapelen of 5 pakken.",
+  eventTwo: "{name} speelde een 2. De volgende speler moet een 2 stapelen of 2 pakken.",
   joinCodeTitle: "Meedoen met code",
   joinCodeCopy: "Gebruik de naam hierboven en typ de kamercode van je vriend.",
   roomCode: "Kamercode",
@@ -385,6 +420,13 @@ const suitNames = {
 suitSymbols.joker = "*";
 suitNames.joker = "Joker";
 const goAgainRanksClient = new Set(["7", "K", "8"]);
+const tutorialTourSteps = [
+  { key: "tourTable", point: "table" },
+  { key: "tourHand", point: "hand" },
+  { key: "tourDeck", point: "deck" },
+  { key: "tourButtons", point: "finish" },
+  { key: "tourBot", point: "bot" },
+];
 
 languageSelect.value = translations[language] ? language : "en";
 language = languageSelect.value;
@@ -433,6 +475,18 @@ tutorialButton.addEventListener("click", async () => {
   const result = await api("/api/create-tutorial", { name, sessionId });
   setRoomUrl(result.code, sessionId);
   enterRoom(result.code);
+});
+
+tutorialNextButton.addEventListener("click", async () => {
+  if (!state?.tutorialMode) return;
+  if (state.phase === "tutorial" && tutorialStep >= tutorialTourSteps.length - 1) {
+    tutorialStep = tutorialTourSteps.length;
+    tutorialBotFirstTurnPending = true;
+    await sendAction("startTutorial");
+    return;
+  }
+  tutorialStep = Math.min(tutorialStep + 1, tutorialTourSteps.length - 1);
+  renderTutorial(state);
 });
 
 codeJoinForm.addEventListener("submit", async (event) => {
@@ -528,6 +582,8 @@ function enterRoom(code) {
   lastRenderedState = null;
   handledEventId = 0;
   dismissedWinKey = "";
+  tutorialStep = 0;
+  tutorialBotFirstTurnPending = false;
   poll();
 }
 
@@ -681,6 +737,7 @@ function render() {
   const me = state.players.find((player) => player.isYou);
   const current = state.players.find((player) => player.id === state.currentPlayerId);
   const isMyTurn = me && state.currentPlayerId === me.id && state.phase === "playing";
+  const isTutorialTour = state.tutorialMode && state.phase === "tutorial";
   const cannotPlay = isMyTurn && state.playableCardIds.length === 0;
   const mustDraw = isMyTurn && state.mustDrawPlayerId === me?.id;
 
@@ -697,9 +754,9 @@ function render() {
   hostWinButton.hidden = !state.canUseHostTools || state.phase === "finished";
   giveCardButton.hidden = !state.canUseHostTools || state.phase !== "playing";
   chatPanel.hidden = Boolean(state.botMode);
-  drawButton.disabled = !isMyTurn || (state.pendingDraw > 0 && mustDraw);
-  undoButton.disabled = !state.canUndo;
-  finishTurnButton.disabled = !state.canFinishTurn;
+  drawButton.disabled = isTutorialTour || !state.canDraw;
+  undoButton.disabled = isTutorialTour || !state.canUndo;
+  finishTurnButton.disabled = isTutorialTour || !state.canFinishTurn;
   deckCount.textContent = state.deckCount;
   turnInfo.textContent = turnLine(state, current);
 
@@ -728,6 +785,7 @@ function render() {
 
   for (const cardEl of hand.querySelectorAll(".card")) {
     cardEl.addEventListener("click", () => {
+      if (isTutorialTour) return;
       const cardId = cardEl.dataset.id;
       const card = state.hand.find((item) => item.id === cardId);
       if (!state.playableCardIds.includes(cardId)) return;
@@ -747,6 +805,8 @@ function render() {
       : t("waitHost");
   } else if (state.phase === "finished") {
     message.textContent = state.winner ? `${state.winner.name}${t("wonSuffix")}` : t("finished");
+  } else if (isTutorialTour) {
+    message.textContent = t("tourNext");
   } else if (isMyTurn) {
     const stackCard = state.pendingDrawRank === "Joker" ? "joker" : "2";
     message.textContent = state.pendingDraw > 0
@@ -762,7 +822,10 @@ function render() {
     message.textContent = current ? t("currentTurn", { name: current.name }) : t("waiting");
   }
 
-  if (state.notice) message.textContent = state.notice.text;
+  const noticeText = state.notice ? noticeMessage(state.notice, me) : "";
+  const eventText = eventMessage(state, me);
+  if (noticeText) message.textContent = noticeText;
+  else if (eventText) message.textContent = eventText;
   renderTutorial(state);
   if (!state.botMode) renderChat(state);
   renderWinScreen(state);
@@ -807,14 +870,57 @@ function renderChat(nextState) {
   if (wasNearBottom) chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
+function noticeMessage(notice, me) {
+  const card = notice.pendingDrawRank === "Joker" ? "Joker" : "2";
+  const isYou = notice.playerId === me?.id;
+  if (notice.count > 1) {
+    return isYou
+      ? t("mustDrawYouForced", { card, count: notice.count })
+      : t("mustDrawOtherForced", { name: notice.playerName, card, count: notice.count });
+  }
+  return isYou ? t("mustDrawYou") : t("mustDrawOther", { name: notice.playerName });
+}
+
+function eventMessage(nextState, me) {
+  const event = nextState.lastEvent;
+  if (!event) return "";
+  const player = nextState.players.find((item) => item.id === (event.from || event.to || event.by));
+  const name = player?.isYou ? t("you") : player?.name || "Player";
+  if (event.type === "draw") {
+    return event.forced
+      ? t("eventForcedDrew", { name, count: event.count })
+      : t("eventDrew", { name, count: event.count });
+  }
+  if (event.type === "play" && event.card?.rank === "10") return t("eventTen", { name });
+  if (event.type === "play" && event.card?.rank === "Joker") return t("eventJoker", { name });
+  if (event.type === "play" && event.card?.rank === "2") return t("eventTwo", { name });
+  return "";
+}
+
 function renderTutorial(nextState) {
   tutorialPanel.classList.toggle("hidden", !nextState.tutorialMode);
-  roomScreen.classList.remove("tutorial-point-hand", "tutorial-point-deck", "tutorial-point-finish", "tutorial-point-bot");
+  roomScreen.classList.remove(
+    "tutorial-tour",
+    "tutorial-point-table",
+    "tutorial-point-hand",
+    "tutorial-point-deck",
+    "tutorial-point-finish",
+    "tutorial-point-bot"
+  );
   if (!nextState.tutorialMode) return;
 
   const me = nextState.players.find((player) => player.isYou);
   const isMyTurn = me && nextState.currentPlayerId === me.id && nextState.phase === "playing";
   tutorialTitle.textContent = t("tutorialTitle");
+  tutorialNextButton.hidden = nextState.phase !== "tutorial";
+
+  if (nextState.phase === "tutorial") {
+    const step = tutorialTourSteps[tutorialStep] || tutorialTourSteps[0];
+    tutorialText.textContent = t(step.key);
+    tutorialNextButton.textContent = tutorialStep >= tutorialTourSteps.length - 1 ? t("tourStartGame") : t("tourNext");
+    roomScreen.classList.add("tutorial-tour", `tutorial-point-${step.point}`);
+    return;
+  }
 
   if (!isMyTurn) {
     tutorialText.textContent = t("tutorialBotTurn");
@@ -869,13 +975,17 @@ function scheduleBotTurn(nextState) {
   if (key === lastBotTurnKey) return;
   lastBotTurnKey = key;
   botTurnInFlight = true;
+  const delay = nextState.tutorialMode && tutorialBotFirstTurnPending
+    ? Math.max(5000, botThinkDelay())
+    : botThinkDelay();
+  tutorialBotFirstTurnPending = false;
   setTimeout(async () => {
     try {
       await sendAction("botTurn");
     } finally {
       botTurnInFlight = false;
     }
-  }, botThinkDelay());
+  }, delay);
 }
 
 function botThinkDelay() {
@@ -909,11 +1019,23 @@ function cardHtml(card, extraClass) {
   const red = card.suit === "hearts" || card.suit === "diamonds" || card.color === "red" ? " red" : "";
   const symbol = suitSymbols[card.suit];
   const label = card.rank === "Joker" ? "Joker" : `${card.rank}${symbol}`;
-  return `<button class="card ${extraClass}${red}" data-id="${card.id}" type="button">
+  return `<button class="card ${extraClass}${red}" data-id="${card.id}" data-tip="${escapeHtml(cardHelp(card))}" type="button">
     <span>${label}</span>
     <span class="middle">${symbol}</span>
     <span class="bottom">${label}</span>
   </button>`;
+}
+
+function cardHelp(card) {
+  if (card.rank === "Joker") return "Joker: can always be played. The next player must draw 5 unless they stack a Joker.";
+  if (card.rank === "2") return "2: the next player must draw 2 unless they stack another 2.";
+  if (card.rank === "7") return "7: play again before finishing your turn.";
+  if (card.rank === "K") return "King: play again before finishing your turn.";
+  if (card.rank === "8") return "8: skips the next player when you finish your turn.";
+  if (card.rank === "A") return "Ace: reverses the play direction.";
+  if (card.rank === "10") return "10: rotates everyone's hands.";
+  if (card.rank === "J") return "Jack: choose the suit for the next player.";
+  return "Normal card: match by suit or rank, then finish your turn.";
 }
 
 function animateStateChanges(previous, next) {
@@ -1255,6 +1377,7 @@ function shareOrigin() {
 }
 
 function phaseLabel(phase) {
+  if (phase === "tutorial") return t("tutorialTitle");
   if (phase === "waiting") return t("phaseWaiting");
   if (phase === "playing") return t("phasePlaying");
   if (phase === "finished") return t("phaseFinished");

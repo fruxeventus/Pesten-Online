@@ -344,6 +344,12 @@ button:disabled {
   line-height: 1.35;
 }
 
+.tutorial-next {
+  justify-self: start;
+  margin-top: 4px;
+  padding: 0 14px;
+}
+
 .tutorial-room .tutorial-panel::before {
   content: "↓";
   display: inline-grid;
@@ -376,6 +382,25 @@ button:disabled {
 
 .tutorial-point-bot .tutorial-panel::before {
   content: "↑";
+}
+
+.tutorial-tour .table > *:not(.tutorial-panel),
+.tutorial-tour .hand-wrap {
+  filter: brightness(0.38);
+  opacity: 0.55;
+}
+
+.tutorial-tour.tutorial-point-table .center-table,
+.tutorial-tour.tutorial-point-table .discard,
+.tutorial-tour.tutorial-point-hand .hand-wrap,
+.tutorial-tour.tutorial-point-deck .deck,
+.tutorial-tour.tutorial-point-finish .finish-action,
+.tutorial-tour.tutorial-point-finish #undoButton,
+.tutorial-tour.tutorial-point-bot .opponents {
+  filter: none;
+  opacity: 1;
+  position: relative;
+  z-index: 3;
 }
 
 .opponents {
@@ -640,6 +665,33 @@ button:disabled {
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
   font-weight: 900;
   transition: transform 180ms ease, opacity 180ms ease, box-shadow 180ms ease;
+}
+
+.card::before {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  width: max-content;
+  max-width: 220px;
+  transform: translateX(-50%) translateY(4px);
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d1718;
+  color: var(--ink);
+  font-size: 0.74rem;
+  line-height: 1.25;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+  z-index: 40;
+}
+
+.card:hover::before,
+.card:focus-visible::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .card.playable {
