@@ -909,6 +909,10 @@ function cardElement(card) {
 }
 
 function animateDraw(count = 1, options = {}) {
+  if (options.force) {
+    animateForcedDraw(count, options.cardIds || []);
+    return;
+  }
   const from = safeRect(drawButton, document.querySelector(".center-table")?.getBoundingClientRect());
   const cardIds = options.cardIds || [];
   const duration = 560;
@@ -938,6 +942,37 @@ function animateDraw(count = 1, options = {}) {
       scrollHandToEnd();
     }, i * (duration + pause));
   }
+}
+
+function animateForcedDraw(count = 1, cardIds = []) {
+  const from = safeRect(drawButton, document.querySelector(".center-table")?.getBoundingClientRect());
+  const target = safeRect(hand, handTargetRect());
+  const total = Math.max(1, count);
+  const incomingCards = cardIds
+    .map((id) => hand.querySelector(`.card[data-id="${CSS.escape(id)}"]`))
+    .filter(Boolean);
+  for (const card of incomingCards) card.classList.add("pending-arrival");
+
+  hand.classList.add("receiving-swap");
+  for (let i = 0; i < total; i += 1) {
+    setTimeout(() => {
+      const clone = document.createElement("div");
+      clone.className = "card swap-card-back";
+      flyCard(from, targetForIndex(target, i), clone, "swap-flight", 500);
+      setTimeout(() => {
+        const incomingCard = incomingCards[i] || null;
+        if (incomingCard) {
+          incomingCard.classList.remove("pending-arrival");
+          incomingCard.classList.add("card-arrive");
+          setTimeout(() => incomingCard.classList.remove("card-arrive"), 420);
+        } else {
+          revealHandCards(i);
+        }
+      }, 420);
+      scrollHandToEnd();
+    }, i * 120);
+  }
+  setTimeout(() => hand.classList.remove("receiving-swap"), total * 120 + 560);
 }
 
 function animateSwapFromPlayer(playerId, count = 1) {

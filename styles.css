@@ -113,11 +113,25 @@ label,
 
 #roomScreen {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
+  grid-template-areas:
+    "head head"
+    "share share"
+    "table chat"
+    "hand chat"
+    "rules chat";
 }
 
 #roomScreen > .room-head,
 #roomScreen > .share-panel {
   grid-column: 1 / -1;
+}
+
+#roomScreen > .room-head {
+  grid-area: head;
+}
+
+#roomScreen > .share-panel {
+  grid-area: share;
 }
 
 #roomScreen > .table,
@@ -126,8 +140,26 @@ label,
   grid-column: 1;
 }
 
+#roomScreen > .table {
+  grid-area: table;
+}
+
+#roomScreen > .hand-wrap {
+  grid-area: hand;
+}
+
+#roomScreen > .rules {
+  grid-area: rules;
+}
+
 #roomScreen.bot-room {
   grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "head"
+    "share"
+    "table"
+    "hand"
+    "rules";
 }
 
 #roomScreen.bot-room > .table,
@@ -842,8 +874,7 @@ button:disabled {
 }
 
 .chat-panel {
-  grid-column: 2;
-  grid-row: 3 / span 3;
+  grid-area: chat;
   min-height: 0;
   height: min(460px, calc(100vh - 190px));
   max-height: calc(100vh - 190px);
@@ -969,6 +1000,16 @@ dialog::backdrop {
   .share-panel,
   #roomScreen {
     grid-template-columns: 1fr;
+  }
+
+  #roomScreen {
+    grid-template-areas:
+      "head"
+      "share"
+      "table"
+      "hand"
+      "rules"
+      "chat";
   }
 
   #roomScreen > .table,
