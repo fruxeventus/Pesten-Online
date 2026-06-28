@@ -27,6 +27,7 @@ const statusLabel = $("#statusLabel");
 const opponents = $("#opponents");
 const deckCount = $("#deckCount");
 const discard = $("#discard");
+const suitIndicator = $("#suitIndicator");
 const message = $("#message");
 const tutorialPanel = $("#tutorialPanel");
 const tutorialTitle = $("#tutorialTitle");
@@ -169,6 +170,7 @@ const translations = {
     winnerKnown: "The winner is known.",
     viewTable: "View table",
     chooseSuit: "Choose a suit",
+    activeSuit: "Suit",
     hearts: "Hearts",
     diamonds: "Diamonds",
     clubs: "Clubs",
@@ -308,6 +310,7 @@ translations.nl = {
   winnerKnown: "De winnaar is bekend.",
   viewTable: "Bekijk tafel",
   chooseSuit: "Kies een soort",
+  activeSuit: "Soort",
   hearts: "Harten",
   diamonds: "Ruiten",
   clubs: "Klaveren",
@@ -507,6 +510,7 @@ translations.zh = {
   winnerKnown: "胜者已确定。",
   viewTable: "查看牌桌",
   chooseSuit: "选择花色",
+  activeSuit: "花色",
   hearts: "红心",
   diamonds: "方块",
   clubs: "梅花",
@@ -952,6 +956,7 @@ function render() {
     .join("");
 
   discard.innerHTML = state.topCard ? cardHtml(state.topCard, "small") : "";
+  renderSuitIndicator(state);
   hand.innerHTML = (state.hand || [])
     .map((card) => cardHtml(card, state.playableCardIds.includes(card.id) ? "playable" : ""))
     .join("");
@@ -1047,6 +1052,19 @@ function renderChat(nextState) {
     </article>`)
     .join("");
   if (wasNearBottom) chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function renderSuitIndicator(nextState) {
+  if (!nextState.topCard) {
+    suitIndicator.textContent = `${t("activeSuit")}: -`;
+    suitIndicator.className = "suit-indicator";
+    return;
+  }
+  const suit = nextState.chosenSuit || nextState.topCard.suit;
+  const symbol = suitSymbols[suit] || "";
+  const label = t(suit) || suit;
+  suitIndicator.textContent = `${t("activeSuit")}: ${symbol} ${label}`;
+  suitIndicator.className = `suit-indicator suit-${suit}`;
 }
 
 function renderPlayerHandPreview(player) {

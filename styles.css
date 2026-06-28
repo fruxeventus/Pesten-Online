@@ -649,6 +649,28 @@ button:disabled {
   text-align: center;
 }
 
+.suit-indicator {
+  width: fit-content;
+  min-height: 30px;
+  margin: 4px auto 8px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.suit-indicator.suit-hearts,
+.suit-indicator.suit-diamonds {
+  color: #fecaca;
+}
+
+.suit-indicator.suit-clubs,
+.suit-indicator.suit-spades {
+  color: #dbeafe;
+}
+
 .turn-info {
   min-height: 24px;
   padding-top: 4px;
