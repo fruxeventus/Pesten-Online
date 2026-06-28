@@ -14,6 +14,7 @@ const joinForm = $("#joinForm");
 const createName = $("#createName");
 const joinName = $("#joinName");
 const roomCodeInput = $("#roomCodeInput");
+const gameTypeSelect = $("#gameTypeSelect");
 const playerCount = $("#playerCount");
 const botDifficulty = $("#botDifficulty");
 const botButton = $("#botButton");
@@ -86,15 +87,19 @@ let tutorialBotFirstTurnPending = false;
 
 const translations = {
   en: {
-    appTitle: "Crazy Eights Multiplayer",
+    appTitle: "Card Game Hub",
     appSubtitle: "Local online cards with friends",
     language: "Language",
     connectedNone: "Not connected",
     notInRoom: "Not in room",
     connected: "Connected",
-    homeTitle: "Create a room and share the link",
-    homeCopy: "Choose how many players can join, create a room, and send the link to your friends. They only enter their name.",
+    homeTitle: "Pick a game and share the link",
+    homeCopy: "Choose Poker, Crazy Eights, or Blackjack. Then create a room, play a bot, or start a tutorial bot.",
     play: "Play",
+    game: "Game",
+    crazyEights: "Crazy Eights",
+    poker: "Poker",
+    blackjack: "Blackjack",
     yourName: "Your name",
     playerPlaceholder: "Player",
     maxPlayers: "Maximum players",
@@ -154,9 +159,14 @@ const translations = {
     giveCard: "Give card",
     undo: "Undo",
     finishTurn: "Finish turn",
+    stand: "Stand",
+    pokerDraw: "Draw",
+    blackjackHit: "Hit",
     startGame: "Start game",
     rulesTitle: "How to play",
     rulesText: `<p><strong>Goal:</strong> be the first player with no cards left.</p><p>On your turn, play a glowing card onto the discard pile. Your card must match the top card by suit or by rank, unless a special card says otherwise.</p><ul><li>If no card glows at the start of your turn, draw one card, then finish your turn.</li><li>If you played a 7 or King and cannot play a follow-up card, draw once. If you still cannot play, draw one more card, then finish your turn.</li><li>Use Undo to take back cards played during your current turn. Press Finish turn when you are done.</li><li>Hover over a card to see its effect.</li></ul>`,
+    pokerRulesText: `<p><strong>Goal:</strong> win the showdown with the best poker hand.</p><ul><li>Everyone gets five cards.</li><li>On your turn, draw up to two extra cards or stand.</li><li>When everyone stands, the best hand wins.</li><li>Bots use the selected difficulty to decide whether to draw or stand.</li></ul>`,
+    blackjackRulesText: `<p><strong>Goal:</strong> get closer to 21 than the others without going over.</p><ul><li>Hit to draw another card.</li><li>Stand when you want to keep your total.</li><li>Face cards count as 10. Aces count as 11 or 1.</li><li>When everyone stands or busts, the best total wins.</li></ul>`,
     rulesRoomTitle: "How to play",
     rulesRoomText: `<p><strong>Goal:</strong> be the first player with no cards left.</p><ul><li>Match the top card by suit or rank.</li><li>Draw from the deck if you cannot play.</li><li>Jack lets you choose a suit. Joker can always be played.</li><li>2 makes the next player draw two cards. Jokers add five cards.</li><li>7 and King give you another turn. 8 skips. Ace reverses. 10 rotates hands.</li></ul>`,
     chat: "Chat",
@@ -209,6 +219,9 @@ const translations = {
     connectedWord: "connected",
     offline: "offline",
     watchingBots: "Watching two bots play.",
+    pokerTurn: "Your poker turn. Draw up to two cards, or stand for the showdown.",
+    blackjackTurn: "Your blackjack turn. Hit to draw, or stand to keep your total.",
+    simpleGameOtherTurn: "{name} is thinking.",
     defaultPlayer: "Player",
     easyBotName: "Easy Bot",
     mediumBotName: "Medium Bot",
@@ -599,6 +612,11 @@ languageSelect.addEventListener("change", () => {
   render();
 });
 
+gameTypeSelect.addEventListener("change", () => {
+  updateHomeRules();
+  renderCreateHome();
+});
+
 createName.value = localStorage.getItem("pesten-name") || "";
 joinName.value = localStorage.getItem("pesten-name") || "";
 
@@ -609,6 +627,7 @@ createForm.addEventListener("submit", async (event) => {
   const result = await api("/api/create", {
     name,
     maxPlayers: Number(playerCount.value),
+    gameType: gameTypeSelect.value,
     sessionId,
   });
   setRoomUrl(result.code, sessionId);
@@ -622,6 +641,7 @@ botButton.addEventListener("click", async () => {
   const result = await api("/api/create-bot", {
     name,
     difficulty: botDifficulty.value,
+    gameType: gameTypeSelect.value,
     sessionId,
   });
   setRoomUrl(result.code, sessionId);
@@ -632,7 +652,7 @@ tutorialButton.addEventListener("click", async () => {
   const name = cleanName(createName.value);
   localStorage.setItem("pesten-name", name);
   sessionId = crypto.randomUUID();
-  const result = await api("/api/create-tutorial", { name, sessionId });
+  const result = await api("/api/create-tutorial", { name, gameType: gameTypeSelect.value, sessionId });
   setRoomUrl(result.code, sessionId);
   enterRoom(result.code);
 });
@@ -661,6 +681,7 @@ codeJoinForm.addEventListener("submit", async (event) => {
       const result = await api("/api/create-bot-watch", {
         name,
         difficulty: botDifficulty.value,
+        gameType: gameTypeSelect.value,
         sessionId,
       });
       setRoomUrl(result.code, sessionId);
@@ -828,6 +849,10 @@ function applyLanguage() {
   createForm.querySelector("h3").textContent = t("play");
   setLabelText(createName, t("yourName"));
   createName.placeholder = t("playerPlaceholder");
+  setLabelText(gameTypeSelect, t("game"));
+  gameTypeSelect.options[0].textContent = t("crazyEights");
+  gameTypeSelect.options[1].textContent = t("poker");
+  gameTypeSelect.options[2].textContent = t("blackjack");
   setLabelText(playerCount, t("maxPlayers"));
   [...playerCount.options].forEach((option) => {
     option.textContent = `${option.value} ${t("players")}`;
@@ -864,7 +889,7 @@ function applyLanguage() {
   finishTurnButton.textContent = t("finishTurn");
   startButton.textContent = t("startGame");
   homeRulesTitle.textContent = t("rulesTitle");
-  homeRulesText.innerHTML = t("rulesText");
+  updateHomeRules();
   tutorialHomePanel.querySelector(".eyebrow").textContent = t("tutorialEyebrow");
   tutorialHomeTitle.textContent = t("tutorialHomeTitle");
   tutorialHomeCopy.textContent = t("tutorialHomeCopy");
@@ -889,6 +914,17 @@ function applyLanguage() {
   closeCardPickerButton.textContent = t("close");
 }
 
+function updateHomeRules() {
+  if (!homeRulesText) return;
+  homeRulesText.innerHTML = rulesTextForGame(gameTypeSelect.value);
+}
+
+function rulesTextForGame(gameType) {
+  if (gameType === "poker") return t("pokerRulesText");
+  if (gameType === "blackjack") return t("blackjackRulesText");
+  return t("rulesText");
+}
+
 function setLabelText(control, text) {
   const label = control.closest("label");
   if (!label) return;
@@ -908,6 +944,7 @@ function render() {
 
   const me = state.players.find((player) => player.isYou);
   const current = state.players.find((player) => player.id === state.currentPlayerId);
+  const simpleCardGame = state.gameType === "poker" || state.gameType === "blackjack";
   const isMyTurn = me && state.currentPlayerId === me.id && state.phase === "playing";
   const isTutorialTour = state.tutorialMode && state.phase === "tutorial";
   const cannotPlay = isMyTurn && state.playableCardIds.length === 0;
@@ -926,6 +963,8 @@ function render() {
   hostWinButton.hidden = !state.canUseHostTools || state.phase === "finished";
   giveCardButton.hidden = !state.canUseHostTools || state.phase !== "playing";
   chatPanel.hidden = Boolean(state.botMode);
+  drawButton.title = state.gameType === "blackjack" ? t("blackjackHit") : state.gameType === "poker" ? t("pokerDraw") : t("chooseCard");
+  finishTurnButton.textContent = simpleCardGame ? t("stand") : t("finishTurn");
   drawButton.disabled = isTutorialTour || !state.canDraw;
   undoButton.disabled = isTutorialTour || !state.canUndo;
   finishTurnButton.disabled = isTutorialTour || !state.canFinishTurn;
@@ -956,6 +995,7 @@ function render() {
   for (const cardEl of hand.querySelectorAll(".card")) {
     cardEl.addEventListener("click", () => {
       if (isTutorialTour) return;
+      if (simpleCardGame) return;
       const cardId = cardEl.dataset.id;
       const card = state.hand.find((item) => item.id === cardId);
       if (!state.playableCardIds.includes(cardId)) return;
@@ -979,6 +1019,10 @@ function render() {
     message.textContent = t("watchingBots");
   } else if (isTutorialTour) {
     message.textContent = t("tourNext");
+  } else if (isMyTurn && state.gameType === "blackjack") {
+    message.textContent = t("blackjackTurn");
+  } else if (isMyTurn && state.gameType === "poker") {
+    message.textContent = t("pokerTurn");
   } else if (isMyTurn) {
     const stackCard = state.pendingDrawRank === "Joker" ? "joker" : "2";
     if (state.pendingDraw > 0) {
@@ -993,7 +1037,11 @@ function render() {
       message.textContent = t("yourTurn");
     }
   } else {
-    message.textContent = current ? t("currentTurn", { name: displayName(current) }) : t("waiting");
+    message.textContent = current
+      ? simpleCardGame
+        ? t("simpleGameOtherTurn", { name: displayName(current) })
+        : t("currentTurn", { name: displayName(current) })
+      : t("waiting");
   }
 
   const noticeText = state.notice ? noticeMessage(state.notice, me) : "";
